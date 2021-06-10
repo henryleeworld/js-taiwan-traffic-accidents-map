@@ -11,8 +11,8 @@ $ git clone
 ----
 
 ## 畫面截圖
-![](https://i.imgur.com/Sibjgab.png)
+![](https://i.imgur.com/QXF1jFE.png)
 > 報案時應說明事故地點、時間、車號、車種、傷亡情形及報案人姓名
 
-![](https://i.imgur.com/T8AaMzR.png)
+![](https://i.imgur.com/PSXKlEq.png)
 > 撥打 110（報警）與 119（救護）或 112（緊急求救）或亦可通知保險公司協助處理
