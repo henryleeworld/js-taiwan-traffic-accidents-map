@@ -29,7 +29,17 @@ var vectorPoints = new ol.layer.Vector({
             featureProjection: appView.getProjection()
         })
     }),
-    style: pointStyleFunction
+    style: pointStyle
+});
+
+var cunli = new ol.layer.Vector({
+    source: new ol.source.Vector({
+        url: 'data/20210324.json',
+        format: new ol.format.TopoJSON({
+            featureProjection: appView.getProjection()
+        })
+    }),
+    style: cunliStyle
 });
 
 var baseLayer = new ol.layer.Tile({
@@ -51,7 +61,7 @@ var baseLayer = new ol.layer.Tile({
 });
 
 var map = new ol.Map({
-    layers: [baseLayer, vectorPoints],
+    layers: [baseLayer, cunli, vectorPoints],
     target: 'map',
     view: appView
 });
@@ -65,37 +75,57 @@ map.on('singleclick', function(evt) {
             firstPosDone = true;
             var p = feature.getProperties();
             currentFeature = feature;
-            vectorPoints.getSource().refresh();
+            if (lastFeature) {
+                if (lastFeatureType === 'point') {
+                    lastFeature.setStyle(pointStyle);
+                } else {
+                    lastFeature.setStyle(cunliStyle);
+                }
+            }
 
-            appView.setCenter(feature.getGeometry().getCoordinates());
-            appView.setZoom(15);
-            var lonLat = ol.proj.toLonLat(p.geometry.getCoordinates());
-            var message = '<table class="table table-dark">';
-            message += '<tbody>';
-            message += '<tr><th scope="row" style="width: 100px;">類型</th><td>';
-            message += p.type;
-            message += '</td></tr>';
-            message += '<tr><th scope="row">發生時間</th><td>' + p.time + '</td></tr>';
-            message += '<tr><th scope="row">發生地點</th><td>' + p.location + '</td></tr>';
-            message += '<tr><th scope="row">死亡受傷人數</th><td>' + p.casualties + '</td></tr>';
-            message += '<tr><th scope="row">車種</th><td>' + p.units + '</td></tr>';
-            message += '<tr><td colspan="2">';
-            message += '<hr /><div class="btn-group-vertical" role="group" style="width: 100%;">';
-            message += '<a href="https://www.google.com/maps/dir/?api=1&destination=' + lonLat[1] + ',' + lonLat[0] + '&travelmode=driving" target="_blank" class="btn btn-info btn-lg btn-block">Google 導航</a>';
-            message += '<a href="https://wego.here.com/directions/drive/mylocation/' + lonLat[1] + ',' + lonLat[0] + '" target="_blank" class="btn btn-info btn-lg btn-block">Here WeGo 導航</a>';
-            message += '<a href="https://bing.com/maps/default.aspx?rtp=~pos.' + lonLat[1] + '_' + lonLat[0] + '" target="_blank" class="btn btn-info btn-lg btn-block">Bing 導航</a>';
-            message += '</div></td></tr>';
-            message += '</tbody></table>';
-            sidebarTitle.innerHTML = p.type;
+            if (p.casualties) {
+                appView.setCenter(feature.getGeometry().getCoordinates());
+                appView.setZoom(15);
+                var lonLat = ol.proj.toLonLat(p.geometry.getCoordinates());
+                var message = '<table class="table table-dark">';
+                message += '<tbody>';
+                message += '<tr><th scope="row" style="width: 100px;">類型</th><td>';
+                message += p.type;
+                message += '</td></tr>';
+                message += '<tr><th scope="row">發生時間</th><td>' + p.time + '</td></tr>';
+                message += '<tr><th scope="row">發生地點</th><td>' + p.location + '</td></tr>';
+                message += '<tr><th scope="row">死亡受傷人數</th><td>' + p.casualties + '</td></tr>';
+                message += '<tr><th scope="row">車種</th><td>' + p.units + '</td></tr>';
+                message += '<tr><td colspan="2">';
+                message += '<hr /><div class="btn-group-vertical" role="group" style="width: 100%;">';
+                message += '<a href="https://www.google.com/maps/dir/?api=1&destination=' + lonLat[1] + ',' + lonLat[0] + '&travelmode=driving" target="_blank" class="btn btn-info btn-lg btn-block">Google 導航</a>';
+                message += '<a href="https://wego.here.com/directions/drive/mylocation/' + lonLat[1] + ',' + lonLat[0] + '" target="_blank" class="btn btn-info btn-lg btn-block">Here WeGo 導航</a>';
+                message += '<a href="https://bing.com/maps/default.aspx?rtp=~pos.' + lonLat[1] + '_' + lonLat[0] + '" target="_blank" class="btn btn-info btn-lg btn-block">Bing 導航</a>';
+                message += '</div></td></tr>';
+                message += '</tbody></table>';
+                sidebarTitle.innerHTML = p.type;
+                currentFeature.setStyle(pointStyle);
+                lastFeatureType = 'point';
+            } else if (p.VILLCODE) {
+                var message = '<table class="table table-dark">';
+                message += '<tbody>';
+                message += '<tr><th scope="row">A1 數量</th><td>' + cunliMeta[p.VILLCODE].a1 + '</td></tr>';
+                message += '<tr><th scope="row">A2 數量</th><td>' + cunliMeta[p.VILLCODE].a2 + '</td></tr>';
+                message += '<tr><th scope="row">總數</th><td>' + cunliMeta[p.VILLCODE].total + '</td></tr>';
+                message += '</tbody></table>';
+                sidebarTitle.innerHTML = p.COUNTYNAME + p.TOWNNAME + p.VILLNAME;
+                currentFeature.setStyle(cunliStyle);
+                lastFeatureType = 'cunli';
+            }
+            lastFeature = currentFeature;
             content.innerHTML = message;
             sidebar.open('home');
-
             pointClicked = true;
         }
     });
 });
 
-function pointStyleFunction(f) {
+function pointStyle(f) {
     var p = f.getProperties(),
         color, stroke, radius, pointCount;
     if (f === currentFeature) {
@@ -135,7 +165,38 @@ function pointStyleFunction(f) {
     })
 }
 
+function cunliStyle(f) {
+    var p = f.getProperties();
+    var color = 'rgba(149,78,44,0.7)';
+    var strokeWidth = 1;
+    if (f === currentFeature) {
+        strokeWidth = 5;
+    }
+    if (cunliMeta[p.VILLCODE]) {
+        if (cunliMeta[p.VILLCODE].total > 50) {
+            color = 'rgba(30,16,9,0.7)';
+        } else if (cunliMeta[p.VILLCODE].total > 30) {
+            color = 'rgba(75,39,22,0.7)';
+        } else if (cunliMeta[p.VILLCODE].total > 10) {
+            color = 'rgba(104,55,31,0.7)';
+        } else if (cunliMeta[p.VILLCODE].total > 5) {
+            color = 'rgba(134,70,40,0.7)';
+        }
+    }
+    return new ol.style.Style({
+        stroke: new ol.style.Stroke({
+            color: 'rgba(0,0,0,0.8)',
+            width: strokeWidth
+        }),
+        fill: new ol.style.Fill({
+            color: color
+        })
+    })
+}
+
 var currentFeature = false;
+var lastFeature = false;
+var lastFeatureType = '';
 
 var geolocation = new ol.Geolocation({
     projection: appView.getProjection()
@@ -189,48 +250,10 @@ $('#btn-geolocation').click(function() {
     return false;
 });
 
-var pointFeatures = [];
-$.get('data/a2.csv', {}, function(c) {
-    var lines = $.csv.toArrays(c);
-    for (k in lines) {
-        if (k > 0) {
-            var pointFeature = new ol.Feature({
-                geometry: new ol.geom.Point(
-                    ol.proj.fromLonLat([parseFloat(lines[k][4]), parseFloat(lines[k][5])])
-                )
-            });
-            pointFeature.setProperties({
-                type: 'a2',
-                time: lines[k][0],
-                location: lines[k][1],
-                casualties: lines[k][2],
-                units: lines[k][3]
-            });
-            pointFeatures.push(pointFeature);
-        }
-    }
-}).then(function() {
-    $.get('data/a1.csv', {}, function(c) {
-        var lines = $.csv.toArrays(c);
-        for (k in lines) {
-            if (k > 0) {
-                var pointFeature = new ol.Feature({
-                    geometry: new ol.geom.Point(
-                        ol.proj.fromLonLat([parseFloat(lines[k][4]), parseFloat(lines[k][5])])
-                    )
-                });
-                pointFeature.setProperties({
-                    type: 'a1',
-                    time: lines[k][0],
-                    location: lines[k][1],
-                    casualties: lines[k][2],
-                    units: lines[k][3]
-                });
-                pointFeatures.push(pointFeature);
-            }
-        }
-    }).then(function() {
-        var vSource = vectorPoints.getSource();
-        vSource.addFeatures(pointFeatures);
-    });
+var cunliMeta = {};
+
+$.getJSON('data/cunli.json', {}, function(r) {
+    cunliMeta = r;
 });
+var pointFeatures = [];
+vectorPoints.setZIndex(100);
