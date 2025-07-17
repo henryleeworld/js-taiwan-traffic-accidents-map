@@ -16,6 +16,12 @@ for (var z = 0; z < 20; ++z) {
 
 var sidebarTitle = document.getElementById('sidebarTitle');
 var content = document.getElementById('sidebarContent');
+var lineHead = {};
+var currentFeature = false;
+var lastCunli = false;
+var lastFeature = false;
+var lastFeatureType = '';
+
 
 var appView = new ol.View({
     center: ol.proj.fromLonLat([121.563904, 25.034031]),
@@ -29,6 +35,15 @@ var vectorPoints = new ol.layer.Vector({
         })
     }),
     style: pointStyle
+});
+
+var a2Points = new ol.layer.Vector({
+    source: new ol.source.Vector({
+        format: new ol.format.GeoJSON({
+            featureProjection: appView.getProjection()
+        })
+    }),
+    style: a2Style
 });
 
 var cunli = new ol.layer.Vector({
@@ -56,11 +71,11 @@ var baseLayer = new ol.layer.Tile({
         wrapX: true,
         attributions: '<a href="http://maps.nlsc.gov.tw/" target="_blank">國土測繪圖資服務雲</a>'
     }),
-    opacity: 0.8
+    opacity: 1
 });
 
 var map = new ol.Map({
-    layers: [baseLayer, cunli, vectorPoints],
+    layers: [baseLayer, cunli, vectorPoints, a2Points],
     target: 'map',
     view: appView
 });
@@ -76,25 +91,27 @@ map.on('singleclick', function(evt) {
             currentFeature = feature;
             if (lastFeature) {
                 if (lastFeatureType === 'point') {
-                    lastFeature.setStyle(pointStyle);
+                    if (p['事故類別名稱'] === 'A1') {
+                        lastFeature.setStyle(pointStyle);
+                    } else {
+                        currentFeature.setStyle(a2Style);
+                    }
                 } else {
                     lastFeature.setStyle(cunliStyle);
                 }
             }
+            var message = '';
 
-            if (p.casualties) {
-                appView.setCenter(feature.getGeometry().getCoordinates());
-                appView.setZoom(15);
+            if (p['事故類別名稱']) {
                 var lonLat = ol.proj.toLonLat(p.geometry.getCoordinates());
-                var message = '<table class="table table-dark">';
+                message += '<table class="table table-dark">';
                 message += '<tbody>';
-                message += '<tr><th scope="row" style="width: 100px;">類型</th><td>';
-                message += p.type;
-                message += '</td></tr>';
-                message += '<tr><th scope="row">發生時間</th><td>' + p.time + '</td></tr>';
-                message += '<tr><th scope="row">發生地點</th><td>' + p.location + '</td></tr>';
-                message += '<tr><th scope="row">死亡受傷人數</th><td>' + p.casualties + '</td></tr>';
-                message += '<tr><th scope="row">車種</th><td>' + p.units + '</td></tr>';
+                for (k in p) {
+                    if (k !== 'geometry') {
+                        message += '<tr><th scope="row">' + k + '</th><td>' + p[k] + '</td></tr>';
+                    }
+                }
+
                 message += '<tr><td colspan="2">';
                 message += '<hr /><div class="btn-group-vertical" role="group" style="width: 100%;">';
                 message += '<a href="https://www.google.com/maps/dir/?api=1&destination=' + lonLat[1] + ',' + lonLat[0] + '&travelmode=driving" target="_blank" class="btn btn-info btn-lg btn-block">Google 導航</a>';
@@ -102,16 +119,51 @@ map.on('singleclick', function(evt) {
                 message += '<a href="https://bing.com/maps/default.aspx?rtp=~pos.' + lonLat[1] + '_' + lonLat[0] + '" target="_blank" class="btn btn-info btn-lg btn-block">Bing 導航</a>';
                 message += '</div></td></tr>';
                 message += '</tbody></table>';
-                sidebarTitle.innerHTML = p.type;
-                currentFeature.setStyle(pointStyle);
+                sidebarTitle.innerHTML = p['發生地點'];
+                if (p['事故類別名稱'] === 'A1') {
+                    currentFeature.setStyle(pointStyle);
+                } else {
+                    currentFeature.setStyle(a2Style);
+                }
+
                 lastFeatureType = 'point';
             } else if (p.VILLCODE) {
-                var message = '<table class="table table-dark">';
-                message += '<tbody>';
-                message += '<tr><th scope="row">A1 數量</th><td>' + cunliMeta[p.VILLCODE].a1 + '</td></tr>';
-                message += '<tr><th scope="row">A2 數量</th><td>' + cunliMeta[p.VILLCODE].a2 + '</td></tr>';
-                message += '<tr><th scope="row">總數</th><td>' + cunliMeta[p.VILLCODE].total + '</td></tr>';
-                message += '</tbody></table>';
+                lastCunli = currentFeature;
+                if (cunliMeta[p.VILLCODE]) {
+                    var cityCode = p.VILLCODE.substring(0, 5);
+                    var a2Features = [];
+                    $.get('data/cunli_a2/' + cityCode + '/' + p.VILLCODE + '.csv', {}, function(c) {
+                        var lines = $.csv.toArrays(c);
+                        for (k in lines) {
+                            var longitude = parseFloat(lines[k][49]);
+                            if (!Number.isNaN(longitude)) {
+                                var pointFeature = new ol.Feature({
+                                    geometry: new ol.geom.Point(
+                                        ol.proj.fromLonLat([longitude, parseFloat(lines[k][50])])
+                                    )
+                                });
+                                var a2Properties = {};
+                                for (lk in lineHead) {
+                                    a2Properties[lineHead[lk]] = lines[k][lk];
+                                }
+                                pointFeature.setProperties(a2Properties);
+                                a2Features.push(pointFeature);
+                            }
+                        }
+                    }).then(function() {
+                        var vSource = a2Points.getSource();
+                        vSource.clear();
+                        vSource.addFeatures(a2Features);
+                    });
+                    message += '<table class="table table-dark">';
+                    message += '<tbody>';
+                    message += '<tr><th scope="row">A1 數量</th><td>' + cunliMeta[p.VILLCODE].a1 + '</td></tr>';
+                    message += '<tr><th scope="row">A2 數量</th><td>' + cunliMeta[p.VILLCODE].a2 + '</td></tr>';
+                    message += '<tr><th scope="row">總數</th><td>' + cunliMeta[p.VILLCODE].total + '</td></tr>';
+                    message += '</tbody></table>';
+                } else {
+                    message = '';
+                }
                 sidebarTitle.innerHTML = p.COUNTYNAME + p.TOWNNAME + p.VILLNAME;
                 currentFeature.setStyle(cunliStyle);
                 lastFeatureType = 'cunli';
@@ -126,7 +178,9 @@ map.on('singleclick', function(evt) {
 
 function pointStyle(f) {
     var p = f.getProperties(),
-        color, stroke, radius, pointCount;
+        color = '#ff0000',
+        stroke, radius = 15,
+        pointCount = 5;
     if (f === currentFeature) {
         stroke = new ol.style.Stroke({
             color: '#000',
@@ -138,18 +192,6 @@ function pointStyle(f) {
             color: '#fff',
             width: 2
         });
-        if (p.type === 'a1') {
-            radius = 15;
-        } else {
-            radius = 8;
-        }
-    }
-    if (p.type === 'a1') {
-        pointCount = 5;
-        color = '#ff0000';
-    } else {
-        pointCount = 3;
-        color = '#cccc00';
     }
 
     return new ol.style.Style({
@@ -164,14 +206,39 @@ function pointStyle(f) {
     })
 }
 
+function a2Style(f) {
+    var p = f.getProperties(),
+        radius, strokeWidth = 1;
+    if (f === currentFeature) {
+        radius = 15;
+        strokeWidth = 3;
+    } else {
+        radius = 8;
+    }
+
+    return new ol.style.Style({
+        image: new ol.style.RegularShape({
+            radius: radius,
+            points: 3,
+            fill: new ol.style.Fill({
+                color: '#cccc00'
+            }),
+            stroke: new ol.style.Stroke({
+                color: '#f00',
+                width: strokeWidth
+            })
+        })
+    })
+}
+
 function cunliStyle(f) {
     var p = f.getProperties();
     var color = 'rgba(149,78,44,0.7)';
     var strokeWidth = 1;
-    if (f === currentFeature) {
+    if (f === lastCunli) {
         strokeWidth = 5;
-    }
-    if (cunliMeta[p.VILLCODE]) {
+        color = 'rgba(255,255,255,0)';
+    } else if (cunliMeta[p.VILLCODE]) {
         if (cunliMeta[p.VILLCODE].total > 50) {
             color = 'rgba(30,16,9,0.7)';
         } else if (cunliMeta[p.VILLCODE].total > 30) {
@@ -180,7 +247,11 @@ function cunliStyle(f) {
             color = 'rgba(104,55,31,0.7)';
         } else if (cunliMeta[p.VILLCODE].total > 5) {
             color = 'rgba(134,70,40,0.7)';
+        } else if (cunliMeta[p.VILLCODE].total > 0) {
+            color = 'rgba(164,85,40,0.7)';
         }
+    } else {
+        color = 'rgba(255,255,255,0)';
     }
     return new ol.style.Style({
         stroke: new ol.style.Stroke({
@@ -192,10 +263,6 @@ function cunliStyle(f) {
         })
     })
 }
-
-var currentFeature = false;
-var lastFeature = false;
-var lastFeatureType = '';
 
 var geolocation = new ol.Geolocation({
     projection: appView.getProjection()
@@ -256,3 +323,36 @@ $.getJSON('data/cunli.json', {}, function(r) {
 });
 var pointFeatures = [];
 vectorPoints.setZIndex(100);
+var currentYear = new Date().getFullYear();
+$.get('data/' + currentYear + '/a1.csv', {}, function(c) {
+    var lines = $.csv.toArrays(c);
+    for (k in lines) {
+        if (k > 0) {
+            if (lines[k][33] != 1) {
+                continue;
+            }
+            var longitude = parseFloat(lines[k][49]);
+            if (!Number.isNaN(longitude)) {
+                var pointFeature = new ol.Feature({
+                    geometry: new ol.geom.Point(
+                        ol.proj.fromLonLat([longitude, parseFloat(lines[k][50])])
+                    )
+                });
+                var p = {};
+                p.type = 'a1';
+                for (lk in lineHead) {
+                    p[lineHead[lk]] = lines[k][lk];
+                }
+                pointFeature.setProperties(p);
+                pointFeatures.push(pointFeature);
+            }
+        } else {
+            lineHead = lines[k];
+        }
+    }
+}).then(function() {
+    var vSource = vectorPoints.getSource();
+    vSource.addFeatures(pointFeatures);
+
+    cunli.getSource().refresh();
+});
